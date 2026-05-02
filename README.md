@@ -191,23 +191,4 @@ Windows PowerShell 下可运行：
 
 ---
 
-## 7. 建议提交说明
-
-可以作为 GitHub commit message：
-
-```text
-完成 PageRank 基础版实现
-
-- 实现 Data.txt 有向边读取
-- 完成 NodeID 到内部下标映射
-- 使用 long long 保存原始 NodeID
-- 使用 incoming 邻接表和 outDegree 数组构建基础图结构
-- 实现 damping = 0.85 的 PageRank 迭代计算
-- 处理 dead-end 节点
-- 使用 teleport 项缓解 spider-trap 问题
-- 增加收敛检测，eps = 1e-8，maxIter = 10000
-- 增加完整 PageRank 总和校验
-- 未收敛或总和异常时不生成正式 Res.txt
-- 输出 Top-100 节点到 Res.txt，无表头，12 位小数
-- 完成基础运行测试和内存测试
-```
+该仓库默认保持公开，但仅仓库所有者拥有写入权限；其他人如需编辑，需要先申请成为协作者，或通过 Pull Request 提交修改。
