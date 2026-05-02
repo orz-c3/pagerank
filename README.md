@@ -188,7 +188,3 @@ Windows PowerShell 下可运行：
 ```
 
 作业要求中明确提到，除基础 PageRank 外，还需要通过 Sparse Matrix、Block Matrix 等方式优化内存使用，因此当前基础版可作为后续优化实现的代码基础。
-
----
-
-该仓库默认保持公开，但仅仓库所有者拥有写入权限；其他人如需编辑，需要先申请成为协作者，或通过 Pull Request 提交修改。
