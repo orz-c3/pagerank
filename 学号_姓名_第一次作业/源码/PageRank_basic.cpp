@@ -18,12 +18,6 @@ struct PageRankResult {
     double finalDiff;
 };
 
-// Compressed Sparse Row (CSR) representation
-struct CSR {
-    vector<int> ptr; // size N+1
-    vector<int> idx; // size M
-};
-
 // Read edges and node IDs from file
 void readData(
     const string& filename,
@@ -52,69 +46,42 @@ void readData(
     sort(nodeIds.begin(), nodeIds.end());
 }
 
-// Build CSR for incoming and outgoing adjacency and out-degree table
+// Build incoming adjacency list and out-degree table
 void buildGraph(
     const vector<pair<long long, long long>>& edges,
     const vector<long long>& nodeIds,
-    CSR& inCSR,
-    CSR& outCSR,
+    vector<vector<int>>& incoming,
     vector<int>& outDegree)
 {
     int N = (int)nodeIds.size();
-    int M = (int)edges.size();
+    incoming.assign(N, vector<int>());
+    outDegree.assign(N, 0);
 
     unordered_map<long long, int> idToIndex;
     idToIndex.reserve(N);
-    for (int i = 0; i < N; i++) idToIndex[nodeIds[i]] = i;
-
-    outDegree.assign(N, 0);
-    vector<int> inDeg(N, 0);
-
-    // Count degrees
-    for (const auto& e : edges) {
-        int u = idToIndex[e.first];
-        int v = idToIndex[e.second];
-        outDegree[u]++;
-        inDeg[v]++;
+    for (int i = 0; i < N; i++) {
+        idToIndex[nodeIds[i]] = i;
     }
 
-    // Build outCSR.ptr
-    outCSR.ptr.assign(N + 1, 0);
-    for (int i = 0; i < N; ++i) outCSR.ptr[i + 1] = outCSR.ptr[i] + outDegree[i];
-    outCSR.idx.assign(M, 0);
-    // temp cursor
-    vector<int> curOut = outCSR.ptr;
-
-    // Build inCSR.ptr
-    inCSR.ptr.assign(N + 1, 0);
-    for (int i = 0; i < N; ++i) inCSR.ptr[i + 1] = inCSR.ptr[i] + inDeg[i];
-    inCSR.idx.assign(M, 0);
-    vector<int> curIn = inCSR.ptr;
-
-    // Fill indices
     for (const auto& e : edges) {
         int u = idToIndex[e.first];
         int v = idToIndex[e.second];
-        outCSR.idx[curOut[u]++] = v;
-        inCSR.idx[curIn[v]++] = u;
+        incoming[v].push_back(u);
+        outDegree[u]++;
     }
 }
 
-// Iterative PageRank computation using CSR. If blockSize>0, use block-based
-// outgoing traversal for better cache locality. If blockSize==0, use incoming
-// CSR to compute each destination separately.
-PageRankResult computePageRankCSR(
-    const CSR& inCSR,
-    const CSR& outCSR,
+// Iterative PageRank computation with damping, teleport, and dead-end handling
+PageRankResult computePageRank(
+    const vector<vector<int>>& incoming,
     const vector<int>& outDegree,
     int maxIter,
     double damping,
-    double eps,
-    int blockSize = 0)
+    double eps)
 {
-    int N = (int)outDegree.size();
+    int N = (int)incoming.size();
     double invN = 1.0 / N;
-    double teleport_base = (1.0 - damping) / N;
+    double teleport = (1.0 - damping) / N;
 
     vector<double> rank(N, invN);
     vector<double> newRank(N, 0.0);
@@ -124,42 +91,27 @@ PageRankResult computePageRankCSR(
     result.finalIter = 0;
     result.finalDiff = 0.0;
 
-    for (int iter = 0; iter < maxIter; ++iter) {
+    for (int iter = 0; iter < maxIter; iter++) {
         double danglingSum = 0.0;
-        for (int i = 0; i < N; ++i) if (outDegree[i] == 0) danglingSum += rank[i];
+        for (int i = 0; i < N; i++) {
+            if (outDegree[i] == 0) {
+                danglingSum += rank[i];
+            }
+        }
         double danglingContrib = damping * danglingSum / N;
 
-        double teleport = teleport_base;
-
-        // initialize newRank
-        for (int v = 0; v < N; ++v) newRank[v] = teleport + danglingContrib;
-
-        if (blockSize <= 0) {
-            // Sparse: use incoming CSR
-            for (int v = 0; v < N; ++v) {
-                for (int p = inCSR.ptr[v]; p < inCSR.ptr[v + 1]; ++p) {
-                    int u = inCSR.idx[p];
-                    // outDegree[u] should be > 0 for an edge u->v
-                    newRank[v] += damping * rank[u] / outDegree[u];
-                }
-            }
-        } else {
-            // Blocked: iterate sources in blocks and distribute contributions
-            for (int b = 0; b < N; b += blockSize) {
-                int bend = min(N, b + blockSize);
-                for (int u = b; u < bend; ++u) {
-                    if (outDegree[u] == 0) continue;
-                    double contrib = damping * rank[u] / outDegree[u];
-                    for (int p = outCSR.ptr[u]; p < outCSR.ptr[u + 1]; ++p) {
-                        int v = outCSR.idx[p];
-                        newRank[v] += contrib;
-                    }
-                }
+        for (int v = 0; v < N; v++) {
+            newRank[v] = teleport + danglingContrib;
+            const vector<int>& inNodes = incoming[v];
+            for (int u : inNodes) {
+                newRank[v] += damping * rank[u] / outDegree[u];
             }
         }
 
         double diff = 0.0;
-        for (int i = 0; i < N; ++i) diff += fabs(newRank[i] - rank[i]);
+        for (int i = 0; i < N; i++) {
+            diff += fabs(newRank[i] - rank[i]);
+        }
 
         swap(rank, newRank);
 
@@ -219,7 +171,7 @@ void writeTop100(
     fout.close();
 }
 
-int main(int argc, char** argv) {
+int main() {
     vector<pair<long long, long long>> edges;
     vector<long long> nodeIds;
 
@@ -228,36 +180,17 @@ int main(int argc, char** argv) {
     sort(edges.begin(), edges.end());
     edges.erase(unique(edges.begin(), edges.end()), edges.end());
 
-    CSR inCSR, outCSR;
+    vector<vector<int>> incoming;
     vector<int> outDegree;
-    buildGraph(edges, nodeIds, inCSR, outCSR, outDegree);
 
-    // Choose mode: by default use blocked mode for better locality.
-    // To force sparse incoming-based computation, set blockSize = 0.
-    int blockSize = 1024;
-    if (argc > 1) {
-        string arg = argv[1];
-        if (arg == "sparse") {
-            blockSize = 0;
-        } else {
-            try {
-                int bs = stoi(arg);
-                if (bs <= 0) blockSize = 0;
-                else blockSize = bs;
-            } catch (...) {
-                // keep default
-            }
-        }
-    }
+    buildGraph(edges, nodeIds, incoming, outDegree);
 
-    PageRankResult result = computePageRankCSR(
-        inCSR,
-        outCSR,
+    PageRankResult result = computePageRank(
+        incoming,
         outDegree,
         10000,
         0.85,
-        1e-8,
-        blockSize
+        1e-8
     );
 
     if (result.converged) {
